@@ -1,0 +1,331 @@
+#!/public/home/jphe/anaconda3/bin/python
+import pysam,time,os,sys,gzip,glob
+import pybedtools
+import multiprocessing
+import argparse
+from functools import partial
+import logging
+import collections
+from math import log
+from glbase3 import genelist, glload, location
+from scTE.annotation import annoGtf
+from annotation.genome import annotation
+
+def prepare_parser():
+    desc = "..."
+
+    exmp = "Example: scTE -i scRNA.sorted.bam -t TEs.bed -g genes.gtf -n 200 -p -10 "
+
+    parser = argparse.ArgumentParser(prog='scTE',description=desc, epilog=exmp) #'Identifying differential transcription binding/histone modification sites.')
+    
+    parser.add_argument('-i','--input', dest='input', type=str, nargs='+', required=True,
+                        help='Input file: BAM/SAM file outputed by CellRanger or STARsolo, the file must be sored by chromosome position')
+                        
+    parser.add_argument('-f','--format', metavar='input file format', dest='format', type=str, nargs='?', default='BAM', choices=['BAM','SAM'],
+                        help='Input file format: BAM or SAM. DEFAULT: BAM')
+                        
+    parser.add_argument('-te', dest='tefile',nargs='+', help='Bed file for TEs')
+    
+    parser.add_argument('-gene', dest='genefile',nargs='+', help='Gtf file for genes')
+    
+    parser.add_argument('-n','--num', dest='genenumber',metavar='INT', type=int, required=True,
+                        help='Minumum expressed genes for each cell barcods')
+                        
+    parser.add_argument('--genome', metavar='genome', dest='genome',type=str, nargs='?', default='mm', choices=['hs','mm',],required=True,
+                        help='"hs" for human, "mm" for mouse, Default: mm')
+                        
+    parser.add_argument('-m','--mode', metavar='TE counting mode', dest='mode', nargs='?', type=str,required=True,
+                        const="exclusive", default='exclusive', choices=['inclusive','exclusive'],
+                        help='How to count TE expression: inclusive (inclued all reads that can map to TEs), or exclusive (exclued the reads that can map to genes).\
+                        DEFAULT: exclusive')
+                        
+    parser.add_argument('-o','--out', dest='out', nargs='?', required=True, help='Output file name')
+                        
+    parser.add_argument('-p','--thread', metavar='INT', dest='thread', type=int, help='Number of threads to use. Default: 1')
+                        
+    parser.add_argument('--verbose', metavar='verbose', dest='verbose', type=int, nargs='?', default=2,
+                        help='Set verbose level. 0: only show critical message, 1: show additional warning message, 2: show process information, 3: show debug messages. DEFAULT:2')
+                        
+    parser.add_argument('-v','--version', action='version', version='%(prog)s 1.0')
+    
+    return parser
+
+def read_opts(parser):
+    args = parser.parse_args()
+    # Identify file format for subsequent processing (parsing)
+    if args.format == "BAM" :
+        args.parser = "BAM"
+    elif args.format == "SAM" :
+        args.parser = "SAM"
+    else :
+        logging.error("The input file must be SAM/BAM format: %s !\n" % (args.format))
+        sys.exit(1)
+
+    if args.mode not in ['inclusive', 'exclusive'] :
+        logging.error("Counting mode %s not supported\n" % (args.mode))
+        parser.print_help()
+        sys.exit(1)
+
+    logging.basicConfig(level=(4 - args.verbose) * 10,
+        format='%(levelname)-5s @ %(asctime)s: %(message)s ',
+        datefmt='%a, %d %b %Y %H:%M:%S',
+    stream=sys.stderr, filemode="w")
+    
+    args.error = logging.critical
+    args.warn = logging.warning
+    args.debug = logging.debug
+    args.info = logging.info
+    
+    args.argtxt = "\n".join(("# ARGUMENTS LIST:", \
+                "Sample = %s" % (args.out), \
+                "Genome = %s" % (args.genome), \
+                "TE file = %s" % (args.tefile[0]), \
+                "Gene file = %s" % (args.genefile[0]), \
+                "Number of genes = %s" % (args.genenumber), \
+                "Mode = %s " % (args.mode), \
+                "Number of threads = %s " % (args.thread),\
+    ))
+    return args 
+
+def Bam2bed(filename,out):
+    if not os.path.exists('_tmp/output1'):
+        os.system('mkdir -p _tmp/output1')
+        
+#     os.system('samtools view -@ 2 %s | awk \'{OFS="\t"}{print $3,$4,$4+100,$16,$18}\' | sed -r \'s/CR:Z://g\' | sed -r \'s/UR:Z://g\'| gzip > _tmp/output1/%s.bed.gz'%(filename,out))
+    os.system('samtools view -@ 2 %s | awk \'{OFS="\t"}{for(i=1;i<=NF;i++)if($i~/CR:Z:/)n=i}{for(i=1;i<=NF;i++)if($i~/UR:Z:/)m=i}{print $3,$4,$4+100,$n,$m}\' | sed -r \'s/CR:Z://g\' | sed -r \'s/UR:Z://g\'| gzip > _tmp/output1/%s.bed.gz'%(filename,out))
+
+def splitChr(chr,filename):
+    print(chr)
+    if chr == 'chr1':
+        os.system('zcat -f _tmp/output1/%s.bed.gz | grep -v chr1\'[0-9]\' | grep %s | awk \'!x[$0]++\' | gzip > _tmp/output2/%s.%s.bed.gz'%(filename,chr,filename,chr))
+    elif chr == 'chr2':
+        os.system('zcat -f _tmp/output1/%s.bed.gz | grep -v chr2\'[0-9]\' | grep %s | awk \'!x[$0]++\' | gzip > _tmp/output2/%s.%s.bed.gz'%(filename,chr,filename,chr))
+    else:
+        os.system('zcat -f _tmp/output1/%s.bed.gz | grep %s | awk \'!x[$0]++\' | gzip > _tmp/output2/%s.%s.bed.gz'%(filename,chr,filename,chr))
+
+def intersect(chr,filename,te_file,gene_file):
+    print(chr,'...')
+    pybedtools.set_tempdir('_tmp/output3/_tmp')
+    a=pybedtools.BedTool('_tmp/output2/%s.%s.bed.gz'%(filename,chr))
+    
+    te_file=pybedtools.BedTool(te_file)
+    gene_file=pybedtools.BedTool(gene_file)
+    
+    overlap_te = te_file.intersect(a,wa=True,wb=True) # takes a lot of memory, ~10-15gb each core/chromosomes
+    overlap_gene = gene_file.intersect(a,wa=True,wb=True)
+    
+    res = {} # res structure is like this {'barcode1':{'gene1:n1,'gene2':n2},'barcode2':{...}}
+    tmp = []
+    for n,k in enumerate(overlap_te):
+        k = str(k).strip().split('\t')
+        if k[9] not in res:
+            res[k[9]] = {}
+        if k[3] not in res[k[9]]:
+            res[k[9]][k[3]] = 0
+        res[k[9]][k[3]] += 1
+    
+    for n,k in enumerate(overlap_gene):
+        k = str(k).strip().split('\t')
+        if k[9] not in res:
+            res[k[9]] = {}
+        if k[3] not in res[k[9]]:
+            res[k[9]][k[3]] = 0
+        res[k[9]][k[3]] += 1
+    
+    oh = gzip.open('_tmp/output3/%s.%s.bed.gz'%(filename,chr),'wt')
+    for barcode in sorted(res):
+        for gene in sorted(res[barcode]):
+            oh.write('%s\t%s\t%s\n'%(barcode,gene,res[barcode][gene]))
+    oh.close()
+
+def align(chr,filename,annot):
+    
+    s1=time.time()
+    all_annot=glload(annot)
+    
+    print('Fethching from %s...'%chr)
+    # load the big file with no overhead:
+    oh = gzip.open('_tmp/output2/%s.%s.bed.gz'%(filename,chr), 'rb')
+    res = {}
+    for i, line in enumerate(oh):
+        t = line.decode('ascii').strip().split('\t')
+
+        chrom = t[0].replace('chr', '')
+        left = int(t[1])
+        rite = int(t[2])
+        barcode = t[3]
+
+        # reach in to the guts of glbase to get the buckets out:
+        # work out which of the buckets is required:
+        loc = location(chr=chrom, left=left, right=rite)
+        left_buck = int((left-1)/10000) * 10000 # these constatns are the bucket_size from glbase3
+        right_buck = int((rite)/10000) * 10000
+        buckets_reqd = range(left_buck, right_buck+10000, 10000)
+
+        if buckets_reqd:
+            result = []
+            # get the ids reqd.
+            loc_ids = set()
+
+            for buck in buckets_reqd:
+                if buck in all_annot.buckets[chrom]:
+                    loc_ids.update(all_annot.buckets[chrom][buck]) # set = unique ids
+
+            for index in loc_ids:
+                if rite >= all_annot.linearData[index]["loc"].loc['left'] and left <= all_annot.linearData[index]["loc"].loc["right"]:
+                    result.append(all_annot.linearData[index])
+#                     if loc.qcollide(all_annot.linearData[index]["loc"]):
+#                        result.append(all_annot.linearData[index])
+
+            if result:
+                for r in result:
+                    gene = r['annot']
+
+                    if barcode not in res:
+                        res[barcode] = {}
+                    if gene not in res[barcode]:
+                        res[barcode][gene] = 0
+                    res[barcode][gene] += 1
+        if (i+1) % 1000000 == 0:
+            print('Processed: {:,}'.format((i+1)))
+
+    oh.close()
+
+    oh = gzip.open('_tmp/output3/%s.%s.bed.gz'%(filename,chr),'wt')
+    for bc in sorted(res):
+        for gene in sorted(res[bc]):
+            oh.write('%s\t%s\t%s\n' % (bc, gene, res[bc][gene]))
+    oh.close()
+    
+    print('Done %s'%(time.time()-s1))
+
+def Countexpression(filename,allelement,filter):
+    gene_seen = allelement
+
+    res = {}
+    genes_oh = gzip.open('_tmp/output4/%s.bed.gz'%filename, 'rb')
+    for n, l in enumerate(genes_oh):
+        t = l.decode('ascii').strip().split('\t')
+        if t[0] not in res:
+            res[t[0]] = {}
+        if t[1] not in res[t[0]]:
+            res[t[0]][t[1]] = int(t[2])
+        res[t[0]][t[1]] += int(t[2])
+        if (n+1) % 1000000 == 0:
+            print('Done %sM counts' % ((n+1)/1e6,))
+    genes_oh.close()
+
+    s=time.time()
+    res_oh = open('%s.tsv'%filename, 'w')
+    res_oh.write('barcodes\t')
+    res_oh.write('%s\n' % ('\t'.join([str(i) for i in sorted(gene_seen)])))
+
+    for k in sorted(res):
+        if len(res[k]) < filter:
+            continue
+        l = []
+        for gene in sorted(gene_seen):
+            if gene not in res[k]:
+                l.append(0)
+            else:
+                l.append(res[k][gene])
+        res_oh.write('%s\t%s\n' % (k, '\t'.join([str(i) for i in l])))
+    res_oh.close()
+    
+    print('Detect %s cells expressed at least %s genes, results output to %s.tsv'%(len(res),filter,filename))
+
+def main():
+    """Start scTEs......parse options......"""
+
+    s=time.time()
+    args=read_opts(prepare_parser())
+
+    info = args.info
+    error = args.error
+
+    # Output arguments used for program
+    info("\n" + args.argtxt + "\n")
+
+    info("Processing BAM/SAM files ...")
+#     Bam2bed(args.input[0],args.out)
+    info("Finished processing sample files\n")
+    
+    if not os.path.exists('_tmp/output2'):
+        os.system('mkdir -p _tmp/output2')
+    
+    form ={'force_tsv': True, 'loc': 'location(chr=column[0], left=column[1], right=column[2])', 'annot': 3}
+        
+    if args.genefile[0] == 'default' and args.tefile[0] == 'default':
+        if args.genome == 'mm':
+            chr_list = ['chr'+ str(i) for i in range(1,20) ] + [ 'chrX','chrY', 'chrM' ]
+            if args.mode == 'exclusive':
+                if not os.path.exists('annotation/mm10.exclusive.glb'): 
+                    annotation(genefile= 'annotation/gencode.vM21.annotation.gtf.gz', tefile= 'annotation/mm10.TEs.bed.gz',mode='exclusive',genome='mm')
+                all_annot = 'annotation/mm10.exclusive.glb'
+                allelement = set(glload(all_annot)['annot'])
+            
+            elif args.mode == 'inclusive':
+                if not os.path.exists('annotation/mm10.inclusive.glb'): 
+                    annotation(genefile= 'annotation/gencode.vM21.annotation.gtf.gz', tefile= 'annotation/mm10.TEs.bed.gz',mode='inclusive',genome='mm')
+                all_annot = 'annotation/mm10.inclusive.glb'
+                allelement = set(glload(all_annot)['annot'])
+        
+        elif args.genome == 'hs':
+            chr_list = ['chr'+ str(i) for i in range(1,23) ] + [ 'chrX','chrY', 'chrM' ]
+            if args.mode == 'exclusive':
+                if not os.path.exists('annotation/hg38.exclusive.glb'): 
+                    annotation(genefile= 'annotation/gencode.v30.annotation.gtf.gz', tefile= 'annotation/hg38.TEs.bed.gz',mode='exclusive',genome='hs')
+                all_annot = 'annotation/hg38.exclusive.glb'
+                allelement = set(glload(all_annot)['annot'])
+            
+            elif args.mode == 'inclusive':
+                if not os.path.exists('annotation/hg38.inclusive.glb'): 
+                    annotation(genefile= 'annotation/gencode.v30.annotation.gtf.gz', tefile= 'annotation/hg38.TEs.bed.gz',mode='inclusive',genome='hs')
+                all_annot = 'annotation/hg38.inclusive.glb'
+                allelement = set(glload(all_annot)['annot'])
+    else:
+        if not os.path.isfile(args.tefile[0]) :
+            logging.error("No such file: %s !\n" %(args.tefile[0]))
+            sys.exit(1)
+        if not os.path.isfile(args.genefile[0]) :
+            logging.error("No such file: %s !\n" % (args.genefile[0]))
+            sys.exit(1)
+        all_annot = annoGtf(genefile=args.genefile[0],tefile=args.tefile[0],mode=args.mode)
+#         all_annot = annotation(genefile=args.genefile[0],tefile=args.tefile[0],mode=args.mode)
+        allelement = set(glload(all_annot)['annot'])
+
+    pool=multiprocessing.Pool(processes=args.thread)
+    partial_work = partial(splitChr,filename=args.out)
+    pool.map(partial_work,chr_list)
+
+    if not os.path.exists('_tmp/output3'):
+        os.system('mkdir -p _tmp/output3')
+    
+    if not os.path.exists('_tmp/output3/_tmp'):
+        os.system('mkdir -p _tmp/output3/_tmp')
+    
+    info("Calculating expression...")
+    pool = multiprocessing.Pool(processes=args.thread)
+    partial_work = partial(align,filename=args.out,annot=all_annot)
+    pool.map(partial_work,chr_list)
+    
+    if not os.path.exists('_tmp/output4'):
+        os.system('mkdir -p _tmp/output4')
+    os.system('zcat -f _tmp/output3/%s.*.bed.gz | gzip > _tmp/output4/%s.bed.gz'%(args.out,args.out))
+    
+    Countexpression(filename=args.out,allelement=allelement,filter=args.genenumber)
+    
+    info("Finished calculating expression \n")
+    #os.system('rm -r ._tmp')
+    e=time.time()
+    info("Done with %s s\n"%(e-s))
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.stderr.write("User interrupt !\n")
+        sys.exit(0)
+
+
+
