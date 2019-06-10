@@ -3,7 +3,7 @@ import glob,os
 
 def readme():
       with open('README.rst') as f:
-	       return f.read()
+           return f.read()
 
 setup(name='scTE',
         version='1.0',
@@ -17,8 +17,8 @@ setup(name='scTE',
         keywords='..',
         url='..',
         author='..',
-        author_email='he_jiangping@gibh.ac.cn',
-        license='GPLv3',
+        author_email='he_jiangping@gibh.ac.cn; andrewh@sustech.edu.cn',
+        license='..',
         packages=[
           'scTE',
         ],
@@ -30,6 +30,7 @@ setup(name='scTE',
           'argparse',
           'pysam>=0.9',
           'pybedtools',
+          'numpy,
         ],
         include_package_data=True,
         zip_safe=False,
