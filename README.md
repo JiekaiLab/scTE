@@ -133,6 +133,6 @@ scTE_scatacseq -i input.bam -x mm10.te.atac.idx
 ```
 
 **Citation**<br>
-If scTE is useful for your research, consider citing [our paper under Nature Communications](https://www.nature.com/articles/s41467-021-21808-x).
+If scTE is useful for your research, consider citing [Nature Communications (2021)](https://www.nature.com/articles/s41467-021-21808-x).
 
 
