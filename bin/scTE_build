@@ -1,0 +1,470 @@
+#!/usr/bin/env python
+
+import multiprocessing
+from functools import partial
+import logging
+import os, sys, glob, datetime, time, gzip
+import argparse
+import collections
+from math import log
+import numpy as np
+sys.path.append(os.path.join(os.path.split(sys.argv[0])[0], '../'))
+from scTE.miniglbase import genelist, glload, location
+
+chr_list = [ str(k) for k in  list(range(1,50))] + ['X','Y', 'M']
+
+def read_opts(parser):
+    args = parser.parse_args()
+
+    if args.mode not in ['inclusive', 'exclusive', 'nointron'] :
+        logging.error("Counting mode %s not supported\n" % (args.mode))
+        parser.print_help()
+        sys.exit(1)
+
+    if args.genome not in ['mm10','hg38','panTro6','macFas5','dm6','danRer11','xenTro9'] :
+        logging.error("Counting genome %s not supported\n" % (args.genome))
+        parser.print_help()
+        sys.exit(1)
+
+    args.info = logging.info
+    return args
+
+def cleanexon(exons):
+    tmp = []
+    for k in sorted(exons):
+        E=[]
+        for it in exons[k]:
+            E+=list(range(it[1],it[2]))
+        E=sorted(set(E))
+
+        s=0
+        #tmp=[]
+        for id in range(0,len(E)-1):
+            if E[id+1]-E[id] >1:
+                en=id
+                tmp.append({'loc': location(chr=it[0], left=E[s], right=E[en]), 'annot': k}) 
+                s=en+1
+        tmp.append({'loc': location(chr=it[0], left=E[s], right=E[id+1]), 'annot': k})
+
+    return tmp
+
+def readGtf(filename):
+    raw = {}
+    clean = {}
+    if '.gz' in filename:
+        o = gzip.open(filename,'rb')
+    else:
+        o = open(filename,'r')
+
+    for idx, l in enumerate(o):
+        if '.gz' in filename:
+            l=l.decode('ascii')
+        if l.startswith('#'):
+            continue
+        t=l.strip().split('\t')
+        if t[2]=='exon' or t[2]=='UTR':
+            if 'chr' not in t[0]:
+                chr = 'chr' + t[0]
+            chr = t[0]
+            if chr.replace('chr','') not in chr_list:
+                continue
+            left = int(t[3])
+            riht =  int(t[4])
+            
+            if 'gene_name' not in t[8]:
+                continue
+            
+            name=t[8].split('gene_name "')[1].split('";')[0]
+
+            if name not in raw:
+                raw[name] = []
+            raw[name].append([chr,left,riht])
+
+            if 'protein_coding' not in l and 'lincRNA' not in l:
+                continue
+            if name not in clean:
+                clean[name] = []
+            clean[name].append([chr,left,riht])
+    o.close()
+    
+    return raw, clean
+
+
+def genomeIndex(genome, mode, tefile, genefile, outname, geneurls, teurls):
+
+    if not genefile: #Download twice for double check, as sometines wget may stops on the way
+        os.system('wget -c -t 0 -T 5 %s'%geneurls)
+        os.system('wget -c -t 0 -T 5 %s'%geneurls)
+        genefilename = geneurls.split('/')[-1:][0]
+    else:
+        genefilename = genefile
+    
+    a = readGtf(genefilename)
+    
+    raw = cleanexon(a[0]) 
+    clean = cleanexon(a[1])
+
+    
+    # for costume chromsome
+    if tefile:
+        o = open(tefile,'rU')
+        for line in o:
+            chr = line.strip().split('\t')[0]
+            if chr not in chr_list:
+                chr_list.append(chr)
+        o.close()
+    #======================
+    
+    if not tefile:
+        os.system('wget -c -t 0 -T 5 %s'%teurls)
+        os.system('wget -c -t 0 -T 5 %s'%teurls)
+        tefilename = teurls.split('/')[-1:][0]
+        teform ={'force_tsv': True, 'loc': 'location(chr=column[5], left=column[6], right=column[7])', 'annot': 10}
+    else:
+        tefilename = tefile
+    
+    gls = genelist()
+    gls.load_list(clean)
+    
+    if mode == 'exclusive':
+        gene = {}
+        for l in clean:
+            chr = l['loc'].loc['chr'] 
+            if chr not in chr_list:
+                continue
+            left = l['loc']['left']
+            rite = l['loc']['right']
+
+            left_buck = ((left-1)//10000) * 10000
+            right_buck = (rite//10000) * 10000
+            buckets_reqd = range(left_buck, right_buck+10000, 10000)
+
+            if chr not in gene:
+                gene[chr] = {}
+
+            if buckets_reqd:
+                for buck in buckets_reqd:
+                    if buck not in gene[chr]:
+                        gene[chr][buck] = []
+                    gene[chr][buck].append([left, rite])
+
+        # Process the TEs:
+        noverlap = []
+        if '.gz' in tefilename:
+            o = gzip.open(tefilename,'rb')
+        else:
+            o = open(tefilename,'rU')
+
+        for n, l in enumerate(o):
+            if '.gz' in tefilename:
+                l = l.decode('ascii')
+            t = l.strip().split('\t')
+            
+            if not tefile:
+                chr = t[5].replace('chr', '')
+                left = int(t[6])
+                rite = int(t[7])
+                name = t[10]
+                clas=t[11]
+                if clas not in ['DNA','LINE','LTR','SINE','Satellite','Retroposon']:
+                    continue
+            else:
+                chr = t[0].replace('chr', '')
+                left = int(t[1])
+                rite = int(t[2])
+                name = t[3]
+                
+            if chr not in chr_list:
+                continue
+            if chr not in gene: # Should be very rare
+                noverlap.append({'loc': location(chr=chr, left=left, right=rite), 'annot': name})
+                continue
+            
+            left_buck = ((left-1)//10000) * 10000
+            right_buck = (rite//10000) * 10000
+            buckets_reqd = range(left_buck, right_buck+10000, 10000)
+
+            if buckets_reqd:
+                i = 1
+                for buck in buckets_reqd:
+                    if buck not in gene[chr]:
+                        pass
+                    else:
+                        for k in gene[chr][buck]:
+                            if left < k[1] and rite > k[0]:
+                                i = 0
+                                break
+                        if i == 0: # already found an overlap, so quit out;
+                            break
+                if i == 1:
+                    noverlap.append({'loc': location(chr=chr, left=left, right=rite), 'annot': name})
+        
+        TEs = genelist()
+        TEs.load_list(noverlap)
+        
+        genes = genelist() 
+        genes.load_list(raw)
+
+        all_annot = genes + TEs
+        
+        if not outname:
+            all_annot.save('%s.exclusive.idx'%genome)
+            print('Done the index building, results output to %s.exclusive.idx \n'% genome)
+        else:
+            all_annot.save('%s.exclusive.idx'%outname)
+            print('Done the index building, results output to %s.exclusive.idx \n'% outname)
+
+    elif mode == 'inclusive':
+        genes = genelist() 
+        genes.load_list(raw)
+        
+        
+        if not tefile:
+            teform ={'force_tsv': True, 'loc': 'location(chr=column[5], left=column[6], right=column[7])', 'annot': 10, 'clas':11}
+            if tefilename.endswith('.gz'):
+                TEs = genelist(tefilename, format=teform, gzip=True)
+            else:
+                TEs = genelist(tefilename, format=teform)
+            
+            keep=[]
+            for id,item in enumerate(TEs):
+                if item['clas'] not in ['DNA','LINE','LTR','SINE','Satellite','Retroposon']:
+                    continue
+                if item['loc']['chr'] not in chr_list:
+                    continue
+                tmp=item.copy()
+                del tmp['clas']
+                keep.append(tmp)
+            gls=genelist()
+            gls.load_list(keep)
+        
+        else:
+            TEs = genelist(tefilename, format={'force_tsv': True, 'loc': 'location(chr=column[0], left=column[1], right=column[2])', 'annot':3})
+            gls = TEs.deepcopy()
+
+        
+        all_annot = genes + gls
+        
+        if not outname:
+            all_annot.save('%s.inclusive.idx'%genome)
+            print('Done the index building, results output to %s.inclusive.idx \n'% genome)
+        else:
+            all_annot.save('%s.inclusive.idx'%outname)
+            print('Done the index building, results output to %s.inclusive.idx \n'% outname)
+    
+    elif mode == 'nointron':
+        raw_gene = a[0]
+        clean_gene ={}
+        for k in raw_gene:
+            if len(raw_gene[k]) == 1: # the gene only have one exon
+                clean_gene[k] = [raw_gene[k][0]]
+            else:
+                tmp = []
+                for it in raw_gene[k]:
+                    tmp += it
+                    chr = [ item for item in tmp if 'chr' in str(item) ][0]
+                    tmp = [ int(item) for item in tmp if 'chr' not in str(item) ]
+                clean_gene[k] = [[ chr, np.min(tmp), np.max(tmp)]]
+        clean = cleanexon(clean_gene)
+        
+        # adapted from 'exclusive' mode to remove the overlap reads
+        gene = {}
+        for l in clean:
+            chr = l['loc'].loc['chr'] 
+            if chr not in chr_list:
+                continue
+            left = l['loc']['left']
+            rite = l['loc']['right']
+
+            left_buck = ((left-1)//10000) * 10000
+            right_buck = (rite//10000) * 10000
+            buckets_reqd = range(left_buck, right_buck+10000, 10000)
+
+            if chr not in gene:
+                gene[chr] = {}
+
+            if buckets_reqd:
+                for buck in buckets_reqd:
+                    if buck not in gene[chr]:
+                        gene[chr][buck] = []
+                    gene[chr][buck].append([left, rite])
+
+        # Process the TEs:
+        noverlap = []
+        if '.gz' in tefilename:
+            o = gzip.open(tefilename,'rb')
+        else:
+            o = open(tefilename,'rU')
+
+        for n, l in enumerate(o):
+            if '.gz' in tefilename:
+                l = l.decode('ascii')
+            t = l.strip().split('\t')
+            
+            if not tefile:
+                chr = t[5].replace('chr', '')
+                left = int(t[6])
+                rite = int(t[7])
+                name = t[10]
+                clas=t[11]
+                if clas not in ['DNA','LINE','LTR','SINE','Satellite','Retroposon']:
+                    continue
+            else:
+                chr = t[0].replace('chr', '')
+                left = int(t[1])
+                rite = int(t[2])
+                name = t[3]
+                
+            if chr not in chr_list:
+                continue
+            if chr not in gene: # Should be very rare
+                noverlap.append({'loc': location(chr=chr, left=left, right=rite), 'annot': name})
+                continue
+            
+            left_buck = ((left-1)//10000) * 10000
+            right_buck = (rite//10000) * 10000
+            buckets_reqd = range(left_buck, right_buck+10000, 10000)
+
+            if buckets_reqd:
+                i = 1
+                for buck in buckets_reqd:
+                    if buck not in gene[chr]:
+                        pass
+                    else:
+                        for k in gene[chr][buck]:
+                            if left < k[1] and rite > k[0]:
+                                i = 0
+                                break
+                        if i == 0: # already found an overlap, so quit out;
+                            break
+                if i == 1:
+                    noverlap.append({'loc': location(chr=chr, left=left, right=rite), 'annot': name})
+        
+        TEs = genelist()
+        TEs.load_list(noverlap)
+        
+        genes = genelist() 
+        genes.load_list(raw)
+
+        all_annot = genes + TEs
+        
+        if not outname:
+            all_annot.save('%s.nointron.idx'%genome)
+            print('Done the index building, results output to %s.nointron.idx \n'% genome)
+        else:
+            all_annot.save('%s.nointron.idx'%outname)
+            print('Done the index building, results output to %s.nointron.idx \n'% outname)
+    
+    if not tefile:
+        os.system('rm %s '% tefilename)
+    if not genefile:
+        os.system('rm %s'%genefilename)
+
+def prepare_parser():
+    
+    desc = "Build genome annotation index for scTE"
+
+    exmp = "Example: scTE_build -te Data/TE.bed -gene Data/Gene.gtf"
+    
+    parser = argparse.ArgumentParser(prog='scTE_build',description=desc, epilog=exmp)
+    
+    optional = parser._action_groups.pop()
+    
+    optional.add_argument('-te', dest='tefile',nargs='+',
+                        help='Six columns bed file for transposable elements annotation. Need the -gene option.')
+
+    optional.add_argument('-gene', dest='genefile',nargs='+',
+                        help='Gtf file for genes annotation. Need the -te option. Mutalluy exclusive to -x option')
+                        
+    optional.add_argument('-m','--mode', dest='mode', type=str, nargs='?', default='exclusive', choices=['inclusive','exclusive','nointron'],
+                        help='How to count TEs expression: inclusive (inclued all reads that can map to TEs), or exclusive (exclued the reads that can map to the exon of protein coding genes and lncRNAs), or nointron (exclude the reads that can map to the exons and intron of genes).\
+                        DEFAULT: exclusive')
+
+    optional.add_argument('-o','--out', dest='out', nargs='?', help='Output file prefix, Default: the genome name')
+
+    optional.add_argument('-g','--genome',  dest='genome',type=str, nargs='?',default='other',choices=['mm10','hg38','panTro6','macFas5','dm6','danRer11','xenTro9'],
+                          help='Possible Genomes: mm10 (mouse), hg38 (human), panTro6 (Chimpanzee), macFas5 (Macaca fascicularis), dm6 (Drosophila melanogaster), danRer11 (Zebrafish), xenTro9 (Xenopus tropicalis)', )
+
+#     required = parser.add_argument_group('required arguments')
+#     
+#     required.add_argument('-g','--genome',  dest='genome',type=str, nargs='?', choices=['hg38','mm10','macFas5','dm6','other'],required=True,
+#                         help='Possible Genomes: mm10 (mouse), hg38 (human)')
+
+    parser._action_groups.append(optional)
+    optional = parser.add_argument_group('optional arguments')
+    optional
+    
+    return parser
+
+def main():
+    timestart=datetime.datetime.now()
+    args=read_opts(prepare_parser())
+    
+    print(args)
+#     if not args.genome:
+#         print('good')
+#     
+#     print(args.genome)
+
+    assert sys.version_info >= (3, 6), 'Python >=3.6 is required'
+
+    info = args.info
+
+    info("Building the scTE genome annotation index... %s"%(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    
+    if args.tefile:
+        tefile = args.tefile[0]
+    else:
+        tefile = None
+        
+    if args.genefile:
+        genefile = args.genefile[0]
+    else:
+        genefile = None
+    
+    if args.genome == 'mm10':
+        genomeIndex(args.genome,args.mode,tefile,genefile, args.out,
+                    'ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/release_M21/gencode.vM21.annotation.gtf.gz',
+                    'http://hgdownload.soe.ucsc.edu/goldenPath/mm10/database/rmsk.txt.gz')
+    
+    elif args.genome == 'hg38':
+        genomeIndex(args.genome,args.mode,tefile,genefile, args.out,
+                    'ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_30/gencode.v30.annotation.gtf.gz',
+                    'http://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/rmsk.txt.gz')
+    
+    elif args.genome == 'panTro6':
+        genomeIndex(args.genome,args.mode,tefile,genefile, args.out,
+                    'http://ftp.ensembl.org/pub/release-103/gtf/pan_troglodytes/Pan_troglodytes.Pan_tro_3.0.103.gtf.gz',
+                    'https://hgdownload.soe.ucsc.edu/goldenPath/panTro6/database/rmsk.txt.gz')
+
+    elif args.genome == 'macFas5':
+        genomeIndex(args.genome,args.mode,tefile,genefile, args.out,
+                    'http://ftp.ensembl.org/pub/release-102/gtf/macaca_fascicularis/Macaca_fascicularis.Macaca_fascicularis_5.0.102.gtf.gz',
+                    'http://hgdownload.soe.ucsc.edu/goldenPath/macFas5/database/rmsk.txt.gz')
+
+    elif args.genome == 'dm6':
+        genomeIndex(args.genome,args.mode,tefile,genefile, args.out,
+                    'http://ftp.ensembl.org/pub/release-103/gtf/drosophila_melanogaster/Drosophila_melanogaster.BDGP6.32.103.gtf.gz',
+                    'http://hgdownload.soe.ucsc.edu/goldenPath/dm6/database/rmsk.txt.gz')
+
+    elif args.genome == 'danRer11':
+        genomeIndex(args.genome,args.mode,tefile,genefile, args.out,
+                    'http://ftp.ensembl.org/pub/release-103/gtf/danio_rerio/Danio_rerio.GRCz11.103.gtf.gz',
+                    'https://hgdownload.soe.ucsc.edu/goldenPath/danRer11/database/rmsk.txt.gz')
+
+    elif args.genome == 'xenTro9':
+        genomeIndex(args.genome,args.mode,tefile,genefile, args.out,
+                    'http://ftp.ensembl.org/pub/release-103/gtf/xenopus_tropicalis/Xenopus_tropicalis.Xenopus_tropicalis_v9.1.103.gtf.gz',
+                    'https://hgdownload.soe.ucsc.edu/goldenPath/xenTro9/database/rmsk.txt.gz')
+
+    info("Done genome annotation index building... %s"%(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.stderr.write("User interrupt !\n")
+        sys.exit(0)
+
+
+
