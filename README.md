@@ -90,7 +90,7 @@ $ http://ftp.ensembl.org/pub/release-103/gtf/xenopus_tropicalis/Xenopus_tropical
 $ https://hgdownload.soe.ucsc.edu/goldenPath/xenTro9/database/rmsk.txt.gz
 ```
 
-`mm10, hg38, panTro6, macFas5, dm6, danRer11,xenTro9` is the genome assembly version. 
+`mm10, hg38, panTro6, macFas5, dm6, danRer11, xenTro9` is the genome assembly version. 
 If you want to use your customs reference, you can use the ` -gene -te` options:
 
 ```
