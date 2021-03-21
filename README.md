@@ -151,7 +151,7 @@ A00519:758:HTCCHDSXY:3:2563:23665:33802	16	chr1	14411	1	90M	*	0	0	TCAGTTCTTTATTG
 
 scTE is most tuned to [STARsolo](https://github.com/alexdobin/STAR) or the [Cell Ranger](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger) pipeline outputs, 
 and can accept BAM files produced by either of these two programs. 
-For other aligners, the barcode should be stored in the ‘CR:Z’ tag, and the UMI in the ‘UR:Z’ tag in the BAM file
+For other aligners, the barcode should be stored in the ‘CR:Z’ or ‘CB:Z’ tag, and the UMI in the ‘UR:Z’ or ‘UB:Z’ tag in the BAM file
 
 **Analysis of C1 style scRNA-seq data**<br>
 If the UMI is missing or not used in the scRNA-seq technology (for example on the Fluidigm C1 platform), it can be disabled with `–UMI False` 
@@ -169,10 +169,6 @@ or
 ```
 $ scTE -i input1.bam,input2.bam,... -o out -x mm10.exclusive.idx -CB False -UMI False
 ```
-
-scTE is most tuned to [STARsolo](https://github.com/alexdobin/STAR) or the [Cell Ranger](https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/what-is-cell-ranger) pipeline outputs, 
-and can accept BAM files produced by either of these two programs. 
-For other aligners, the barcode should be stored in the ‘CR:Z’ tag, and the UMI in the ‘UR:Z’ tag in the BAM file
 
 **Analysis of scATAC-seq data**<br>
 The genome indices were prebuilt using:
