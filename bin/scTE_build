@@ -382,7 +382,7 @@ def prepare_parser():
 
     optional.add_argument('-o','--out', dest='out', nargs='?', help='Output file prefix, Default: the genome name')
 
-    optional.add_argument('-g','--genome',  dest='genome',type=str, nargs='?',default='other',choices=['mm10','hg38','panTro6','macFas5','dm6','danRer11','xenTro9','other'],
+    optional.add_argument('-g','--genome',  dest='genome',type=str, nargs='?',default='other',choices=['other','mm10','hg38','panTro6','macFas5','dm6','danRer11','xenTro9'],
                           help='Possible Genomes: mm10 (mouse), hg38 (human), panTro6 (Chimpanzee), macFas5 (Macaca fascicularis), dm6 (Drosophila melanogaster), danRer11 (Zebrafish), xenTro9 (Xenopus tropicalis)', )
 
 #     required = parser.add_argument_group('required arguments')
