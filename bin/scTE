@@ -33,7 +33,7 @@ def prepare_parser():
     optional.add_argument('-f','--format', metavar='input file format', dest='format', type=str, nargs='?', default='BAM', choices=['BAM','SAM'],
                         help='Input file format: BAM or SAM. DEFAULT: BAM')
 
-    optional.add_argument('-CB', dest='CB', type=str, nargs='?', default='CR', choices=['CR','CB','False'],
+    optional.add_argument('-CB', dest='CB', type=str, nargs='?', default='CR', choices=['CR','CB','RG','False'],
                         help='Set to false to ignore for cell barcodes, it is useful for SMART-seq. If you set CB=False, it also will set UMI=False by default, Default: CR')
 
     optional.add_argument('-UMI', dest='UMI', type=str, nargs='?', default='UR', choices=['UR','UB','False'],
@@ -130,7 +130,7 @@ def main():
     else:
         info('Executing multiple thread path with %s threads' % args.thread)
         pool=multiprocessing.Pool(processes=args.thread)
-        partial_work = partial(splitChr, filename=outname, CB=args.CB, UMI=args.UMI)
+        partial_work = partial(splitChr, filename=outname)
         pool.map(partial_work, chr_list)
         whitelist = filterCRs(filename=outname, genenumber=args.genenumber, countnumber=args.countnumber)
 
