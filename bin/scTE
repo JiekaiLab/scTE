@@ -33,11 +33,11 @@ def prepare_parser():
     optional.add_argument('-f','--format', metavar='input file format', dest='format', type=str, nargs='?', default='BAM', choices=['BAM','SAM'],
                         help='Input file format: BAM or SAM. DEFAULT: BAM')
 
-    optional.add_argument('-CB', dest='CB', type=str, nargs='?', default='CR', choices=['CR','CB','RG','False'],
+    optional.add_argument('-CB', dest='CB', type=str, nargs='?', default='CR',
                         help='Set to false to ignore for cell barcodes, it is useful for SMART-seq. If you set CB=False, it also will set UMI=False by default, Default: CR')
 
-    optional.add_argument('-UMI', dest='UMI', type=str, nargs='?', default='UR', choices=['UR','UB','False'],
-                        help='Set to false to ignore for UMI, it is useful for SMART-seq. Default: True')
+    optional.add_argument('-UMI', dest='UMI', type=str, nargs='?', default='UR',
+                        help='Set to false to ignore for UMI, it is useful for SMART-seq. Default: UR')
 
     optional.add_argument('--keeptmp', dest='keeptmp', type=str, nargs='?', default='False', choices=['True','False'],
                         help='Keep the _scTEtmp file, which is useful for debugging. Default: False')
@@ -75,11 +75,9 @@ def main():
     timestart=datetime.datetime.now()
     args=read_opts(prepare_parser())
 
-    # Fix up the UMI/CB booleans:
-#     if args.UMI == 'True': args.UMI = True
-#     else: args.UMI = False
-#     if args.CB == 'True': args.CB = True
-#     else: args.CB = False
+    # Fix up the booleans:
+    if args.UMI == 'False': args.UMI = False
+    if args.CB == 'False': args.CB = False
     if args.hdf5 == 'True': args.hdf5 = True
     else: args.hdf5 = False
 

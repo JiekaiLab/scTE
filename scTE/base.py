@@ -107,7 +107,7 @@ def Readanno(filename, annoglb): #genome
     return(allelement, chr_list, annoglb, glannot)
 
 def checkCBUMI(filename,out,CB,UMI):
-    if CB != 'False':
+    if CB is not False:
         subprocess.run(f'samtools view {filename} | head -100 | grep "{CB}:Z:" | wc -l > {out}_scTEtmp/o1/testCR.txt',shell=True)
         time.sleep(2) #subprocess need take some time
         o=open(f'{out}_scTEtmp/o1/testCR.txt','rU')
@@ -117,7 +117,7 @@ def checkCBUMI(filename,out,CB,UMI):
                 logging.error(f"The input file {filename} has no cell barcodes information, plese make sure the aligner have add the cell barcode key, or set CB to False")
                 sys.exit(1)
 
-    if UMI != 'False':
+    if UMI is not False:
         subprocess.run(f'samtools view {filename} | head -100| grep "{UMI}:Z:" | wc -l > {out}_scTEtmp/o1/testUMI.txt',shell=True)
         time.sleep(2)
         o=open(f'{out}_scTEtmp/o1/testUMI.txt','rU')
@@ -137,8 +137,8 @@ def Bam2bed(filename, CB, UMI, out, num_threads):
     else:
         switch = '-r'
 
-    if UMI == 'False':
-        if CB == 'False':
+    if UMI is False:
+        if CB is False:
             # Put the sample name in the barcode slot
             os.system(f'samtools view -@ {num_threads} {filename} | awk \'{{OFS="\t"}}{{print $3,$4,$4+100,"{out}"}}\' | sed {switch} \'s/^chr//g\'| gzip -c > {out}_scTEtmp/o1/{out}.bed.gz')
         else: 
@@ -159,8 +159,8 @@ def Para_bam2bed(filename, CB, UMI, out):
         switch = '-r'
     
     print(UMI,CB)
-    if UMI == 'False':
-        if CB == 'False':
+    if UMI is False:
+        if CB is False:
             os.system(f'samtools view {filename} | awk \'{{OFS="\t"}}{{print $3,$4,$4+100,"{sample}"}}\' | sed {switch} \'s/^chr//g\' | gzip > {out}_scTEtmp/o0/{sample}.bed.gz')
         else:
             os.system(f'samtools view {filename} | awk \'{{OFS="\t"}}{{for(i=12;i<=NF;i++)if($i~/{CB}:Z:/)n=i}}{{print $3,$4,$4+100,$n,$m}}\' | sed {switch} \'s/{CB}:Z://g\' | sed {switch} \'s/^chr//g\' | gzip > {out}_scTEtmp/o0/{sample}.bed.gz')
