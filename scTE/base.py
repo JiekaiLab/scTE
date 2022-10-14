@@ -432,11 +432,11 @@ def align(chr, filename, all_annot, glannot, whitelist): #CB
             oh.write('%s\t%s\t%s\n' % (bc, gene, res[bc][gene]))
     oh.close()
 
-def Countexpression(filename, allelement, genenumber, cellnumber, hdf5):
+def Countexpression(filename, outname, allelement, genenumber, cellnumber, hdf5):
     gene_seen = allelement
 
     whitelist={}
-    o = gzip.open('%s_scTEtmp/o4/%s.bed.gz'%(filename, filename), 'rt')
+    o = gzip.open('%s_scTEtmp/o4/%s.bed.gz'%(outname,outname), 'rt')
     for n,l in enumerate(o):
         t = l.strip().split('\t')
         if t[0] not in whitelist:
@@ -455,7 +455,7 @@ def Countexpression(filename, allelement, genenumber, cellnumber, hdf5):
     CRlist = set(CRlist)
 
     res = {}
-    genes_oh = gzip.open('%s_scTEtmp/o4/%s.bed.gz' % (filename,filename), 'rt')
+    genes_oh = gzip.open('%s_scTEtmp/o4/%s.bed.gz' % (outname,outname), 'rt')
     for n, l in enumerate(genes_oh):
         t = l.strip().split('\t')
         if t[0] not in CRlist:
