@@ -90,8 +90,8 @@ def prepare_parser():
     required.add_argument('-x', dest='annoglb',nargs='+', required=True,
                     help='The filename of the indexed genome')
 
-    required.add_argument('-g','--genome', metavar='genome', dest='genome', type=str, nargs='?', default='mm10', choices=['hg38','mm10',], required=True,
-                        help='"hg38" for human, "mm10" for mouse')
+#     required.add_argument('-g','--genome', metavar='genome', dest='genome', type=str, nargs='?', default='mm10', choices=['hg38','mm10',], required=True,
+#                         help='"hg38" for human, "mm10" for mouse')
 
     
 #     required.add_argument('-f', '--infastq', nargs=1, required=True, help='THe FASTQ file containing the barcode read')
@@ -141,7 +141,7 @@ def main():
     outname = args.out.split('/')[-1:][0]
     
     info("Loading the genome annotation index... %s"%(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-    allelement, chr_list, all_annot, glannot = Readanno(filename=outname, annoglb=args.annoglb[0], genome=args.genome)
+    allelement, chr_list, all_annot, glannot = Readanno(filename=outname, annoglb=args.annoglb[0])
     chr_list = [ k for k in chr_list if k not in ['chrM']]
     info("Finished loading the genome annotation index... %s \n"%(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
@@ -149,7 +149,7 @@ def main():
 
     if len(args.input) == 1 and ',' in args.input[0]:
         args.input=args.input[0].split(',')
-
+    
     if not os.path.exists('%s_scTEtmp/o1'%outname):
         os.system('mkdir -p %s_scTEtmp/o1'%outname)
 
@@ -163,7 +163,7 @@ def main():
     else:
         atacBam2bed(args.input[0], outname, CB=args.CB, UMI=args.UMI, noDup=args.noDup, num_threads=args.thread)
     info("Done BAM/SAM files processing ...%s \n"%(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-
+    
     info("Splitting ...%s"%(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     if args.thread == 1: #Single thread path, mainly
         # This is useful for testing optimsations, as the multiprocessing path the profile
@@ -178,15 +178,15 @@ def main():
         whitelist = filterCRs(filename=outname, genenumber=args.genenumber, countnumber=args.countnumber)
 
     info("Finished processing sample files %s \n"%(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-
+    
     info("Fetching from the annotation index... %s"%(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     if args.thread == 1: #Single thread path
         for chrom in chr_list:
-            align(chr=chrom, filename=outname, all_annot=None, glannot=glannot, whitelist=whitelist, CB=args.CB)
+            align(chr=chrom, filename=outname, all_annot=None, glannot=glannot, whitelist=whitelist) #, CB=args.CB
 
     else: # Multiprocessing path:
         pool = multiprocessing.Pool(processes=args.thread)
-        partial_work = partial(align, filename=outname, all_annot=all_annot, glannot=None, whitelist=whitelist, CB=args.CB) # send a copy of the index
+        partial_work = partial(align, filename=outname, all_annot=all_annot, glannot=None, whitelist=whitelist ) # send a copy of the index , CB=args.CB
         pool.map(partial_work, chr_list)
 
     if not os.path.exists('%s_scTEtmp/o4'%outname):

@@ -94,7 +94,7 @@ $ https://hgdownload.soe.ucsc.edu/goldenPath/xenTro9/database/rmsk.txt.gz
 If you want to use your customs reference, you can use the ` -gene -te` options:
 
 ```
-scTE_build -te TEs.bed -gene Genes.gtf -o custome.idx
+scTE_build -te TEs.bed -gene Genes.gtf -o custome
 
 -te
     Six columns bed file for transposable elements annotation.

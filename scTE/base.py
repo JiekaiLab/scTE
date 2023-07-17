@@ -24,12 +24,12 @@ def read_opts(parser):
     else :
         logging.error("The input file must be SAM/BAM format: %s !\n" % (args.format))
         sys.exit(1)
-
+    
     args.error = logging.critical
     args.warn = logging.warning
     args.debug = logging.debug
     args.info = logging.info
-
+    
     args.argtxt ="\n".join(("Parameter list:", \
                 "Sample = %s" % (args.out), \
 #                 "Genome = %s" % (args.genome), \
@@ -185,7 +185,6 @@ def Para_bam2bed(filename, CB, UMI, out):
     else:
         switch = '-r'
     
-    print(UMI,CB)
     if UMI == 'False':
         if CB == 'False':
             os.system('samtools view %s | awk \'{OFS="\t"}{print $3,$4,$4+100,"%s"}\' | sed %s \'s/^chr//g\' | gzip > %s_scTEtmp/o0/%s.bed.gz'%(filename, sample, switch, out, sample))
@@ -269,46 +268,35 @@ def splitAllChrs(chromosome_list, filename, genenumber, countnumber, UMI=True):
     [file_handles_out[k].close() for k in file_handles_out]
     file_handle_in.close()
 
-    # Because this does it all in one go, you can just filter the whitelist here now, and don't need the .count. file;
-    sortcb = sorted(CRs.items(), key=lambda item:item[1], reverse=True) # Sorts by the count;
-
     if not countnumber:
         mincounts = 2 * genenumber
     else:
         mincounts = countnumber
 
-    whitelist = []
-    for n, k in enumerate(sortcb):
-        if k[1] < mincounts:
-            break
-        whitelist.append(k[0])
+    CRs = {k: v for k, v in CRs.items() if v >= mincounts}
 
-    return set(whitelist)
+    return list(CRs.keys())
 
 def filterCRs(filename, genenumber, countnumber):
     CRs = defaultdict(int)
-    for f in glob.glob('%s_scTEtmp/o2/%s*.count.gz'%(filename,filename)):
+    for f in sorted(glob.glob('%s_scTEtmp/o2/%s*.count.gz'%(filename,filename))):
+        logging.info('Reading %s '%os.path.split(f)[1])
         o = gzip.open(f,'rt')
         for l in o:
             t = l.strip().split('\t')
             CRs[t[0]] += int(t[1])
         o.close()
 
-    sortcb=sorted(CRs.items(),key=lambda item:item[1],reverse=True)
-
     if not countnumber:
         mincounts = 2* genenumber
     else:
         mincounts = countnumber
+    
+    logging.info('Before filter %s'%len(CRs))
+    CRs = {k: v for k, v in CRs.items() if v >= mincounts}
+    logging.info('Aefore filter %s'%len(CRs))
 
-    whitelist=[]
-    for n,k in enumerate(sortcb):
-        if k[1] < mincounts:
-            break
-        whitelist.append(k[0])
-
-    #print(len(whitelist))
-    return set(whitelist)
+    return list(CRs.keys())
 
 def splitChr(chr, filename, CB, UMI):
     if not os.path.exists('%s_scTEtmp/o2'%filename):
@@ -502,7 +490,7 @@ def Countexpression(filename, allelement, genenumber, cellnumber, hdf5):
 
         obs = pd.DataFrame(index = CBs)
         var = pd.DataFrame(index = gene_seen)
-        adata = ad.AnnData(np.asarray(data),var = var,obs = obs)
+        adata = ad.AnnData(np.asarray(data).astype(int),var = var,obs = obs)
         adata.X = scipy.sparse.csr_matrix(adata.X)
         adata.write('%s.h5ad'%filename)
     
@@ -512,13 +500,13 @@ def Countexpression(filename, allelement, genenumber, cellnumber, hdf5):
     return len(res), genenumber, filename
 
 def timediff(timestart, timestop):
-        t  = (timestop-timestart)
-        time_day = t.days
-        s_time = t.seconds
-        ms_time = t.microseconds / 1000000
-        usedtime = int(s_time + ms_time)
-        time_hour = int(usedtime / 60 / 60 )
-        time_minute = int((usedtime - time_hour * 3600 ) / 60 )
-        time_second =  int(usedtime - time_hour * 3600 - time_minute * 60 )
-        retstr = "%dd %dh %dm %ds"  %(time_day, time_hour, time_minute, time_second,)
-        return retstr
+    t  = (timestop-timestart)
+    time_day = t.days
+    s_time = t.seconds
+    ms_time = t.microseconds / 1000000
+    usedtime = int(s_time + ms_time)
+    time_hour = int(usedtime / 60 / 60 )
+    time_minute = int((usedtime - time_hour * 3600 ) / 60 )
+    time_second =  int(usedtime - time_hour * 3600 - time_minute * 60 )
+    retstr = "%dd %dh %dm %ds"  %(time_day, time_hour, time_minute, time_second,)
+    return retstr

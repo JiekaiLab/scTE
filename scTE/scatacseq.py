@@ -100,6 +100,7 @@ def atacBam2bed(filename, out, CB, UMI, noDup, num_threads):
     else:
         if noDup:
             os.system('bamToBed -i %s -bedpe | awk -F ["\t":] \'{OFS="\t"}{print $1,$2,$6,$7}\'  | sed %s \'s/^chr//g\' | awk \'!x[$0]++\' | gzip -c > %s_scTEtmp/o1/%s.bed.gz' % (filename, switch, out, out))
+#             os.system('bamToBed -i %s  -bedpe | awk -F ["\t":] \'{OFS="\t"}{print $1,$2,$3,$4}\'  | sed %s \'s/^chr//g\' | awk \'!x[$0]++\' | gzip -c > %s_scTEtmp/o1/%s.bed.gz' % (filename, switch, out, out))
         else:
             os.system('bamToBed -i %s -bedpe | awk -F ["\t":] \'{OFS="\t"}{print $1,$2,$6,$7}\'  | sed %s \'s/^chr//g\' | gzip -c > %s_scTEtmp/o1/%s.bed.gz' % (filename, switch, out, out))
 
@@ -121,7 +122,8 @@ def para_atacBam2bed(filename, CB, out, noDup):
             os.system('bamToBed -i %s -bedpe | awk -F ["\t":] \'{OFS="\t"}{print $1,$2,$6,"%s"}\' | sed %s \'s/^chr//g\' | gzip -c > %s_scTEtmp/o0/%s.bed.gz' %(filename, sample, switch, out, sample))
     else:
         if noDup:
-            os.system('bamToBed -i %s -bedpe | awk -F ["\t":] \'{OFS="\t"}{print $1,$2,$6,$7}\' | sed %s \'s/^chr//g\' | awk \'!x[$0]++\' | gzip -c > %s_scTEtmp/o0/%s.bed.gz' % (filename, switch, out, out))
+#             os.system('bamToBed -i %s -bedpe | awk -F ["\t":] \'{OFS="\t"}{print $1,$2,$6,$7}\' | sed %s \'s/^chr//g\' | awk \'!x[$0]++\' | gzip -c > %s_scTEtmp/o0/%s.bed.gz' % (filename, switch, out, out))
+            os.system('bamToBed -i %s | awk -F ["\t":] \'{OFS="\t"}{print $1,$2,$3,$4}\'  | sed %s \'s/^chr//g\' | awk \'!x[$0]++\' | gzip -c > %s_scTEtmp/o1/%s.bed.gz' % (filename, switch, out, out))
         else:
             os.system('bamToBed -i %s -bedpe | awk -F ["\t":] \'{OFS="\t"}{print $1,$2,$6,$7}\' | sed %s \'s/^chr//g\' | gzip -c > %s_scTEtmp/o0/%s.bed.gz' % (filename, switch, out, out))
 
