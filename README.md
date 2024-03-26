@@ -181,7 +181,7 @@ $ scTEATAC_build -g mm10.te.bed -o mm10.te.atac
 ```
 Then the bam file can processe using scTE with the command:
 ```
-scTE_scatacseq -i input.bam -x mm10.te.atac.idx
+scTEATAC -i input.bam -x mm10.te.atac.idx
 ```
 
 **Citation**<br>
