@@ -110,7 +110,7 @@ def checkCBUMI(filename,out,CB,UMI):
     if CB == 'CR':
         subprocess.run('samtools view %s | head -100| grep "CR:Z:" | wc -l > %s_scTEtmp/o1/testCR.txt'%(filename,out),shell=True)
         time.sleep(2) #subprocess need take some time
-        o=open('%s_scTEtmp/o1/testCR.txt'%(out),'rU')
+        o=open('%s_scTEtmp/o1/testCR.txt'%(out),'r')
         for l in o:
             l=l.strip()
             if int(l) < 100:
@@ -119,7 +119,7 @@ def checkCBUMI(filename,out,CB,UMI):
     elif CB == 'CB':
         subprocess.run('samtools view %s | head -100| grep "CB:Z:" | wc -l > %s_scTEtmp/o1/testCR.txt'%(filename,out),shell=True)
         time.sleep(2) #subprocess need take some time
-        o=open('%s_scTEtmp/o1/testCR.txt'%(out),'rU')
+        o=open('%s_scTEtmp/o1/testCR.txt'%(out),'r')
         for l in o:
             l=l.strip()
             if int(l) < 100:
@@ -129,7 +129,7 @@ def checkCBUMI(filename,out,CB,UMI):
     if UMI == 'UR':
         subprocess.run('samtools view %s | head -100| grep "UR:Z:" | wc -l > %s_scTEtmp/o1/testUMI.txt'%(filename,out),shell=True)
         time.sleep(2)
-        o=open('%s_scTEtmp/o1/testUMI.txt'%(out),'rU')
+        o=open('%s_scTEtmp/o1/testUMI.txt'%(out),'r')
         for l in o:
             l=l.strip()
             if int(l) < 100:
@@ -138,7 +138,7 @@ def checkCBUMI(filename,out,CB,UMI):
     elif UMI == 'UB':
         subprocess.run('samtools view %s | head -100| grep "UB:Z:" | wc -l > %s_scTEtmp/o1/testUMI.txt'%(filename,out),shell=True)
         time.sleep(2)
-        o=open('%s_scTEtmp/o1/testUMI.txt'%(out),'rU')
+        o=open('%s_scTEtmp/o1/testUMI.txt'%(out),'r')
         for l in o:
             l=l.strip()
             if int(l) < 100:
